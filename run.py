@@ -6,7 +6,11 @@ from llmrankers.batchrankers import BatchRanker
 from llmrankers.rankers import SearchResult
 from llmrankers.pointwise import PointwiseLlmRanker, MonoT5LlmRanker
 from llmrankers.setwise import SetwiseLlmRanker, OpenAiSetwiseLlmRanker
-from llmrankers.pairwise import PairwiseLlmRanker, DuoT5LlmRanker, OpenAiPairwiseLlmRanker
+from llmrankers.pairwise import (
+    PairwiseLlmRanker,
+    DuoT5LlmRanker,
+    OpenAiPairwiseLlmRanker,
+)
 from llmrankers.listwise import OpenAiListwiseLlmRanker, ListwiseLlmRanker
 from tqdm import tqdm
 import argparse
@@ -14,6 +18,7 @@ import sys
 import json
 import time
 import random
+
 random.seed(929)
 logger = logging.getLogger(__name__)
 
@@ -21,13 +26,14 @@ logger = logging.getLogger(__name__)
 def str2bool(v):
     if isinstance(v, bool):
         return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if v.lower() in ("yes", "true", "t", "y", "1"):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif v.lower() in ("no", "false", "f", "n", "0"):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-    
+        raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
 def parse_args(parser, commands):
     # Divide argv by commands
     split_argv = [[]]
@@ -50,7 +56,7 @@ def parse_args(parser, commands):
 
 
 def write_run_file(path, results, tag):
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         for qid, _, ranking in results:
             rank = 1
             for doc in ranking:
@@ -63,93 +69,115 @@ def write_run_file(path, results, tag):
 def main(args):
 
     if args.pointwise:
-        if 'monot5' in args.run.model_name_or_path:
-            ranker = MonoT5LlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                     tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                     device=args.run.device,
-                                     cache_dir=args.run.cache_dir,
-                                     method=args.pointwise.method,
-                                     batch_size=args.pointwise.batch_size)
+        if "monot5" in args.run.model_name_or_path:
+            ranker = MonoT5LlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                method=args.pointwise.method,
+                batch_size=args.pointwise.batch_size,
+            )
         else:
-            ranker = PointwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                        tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                        device=args.run.device,
-                                        cache_dir=args.run.cache_dir,
-                                        method=args.pointwise.method,
-                                        batch_size=args.pointwise.batch_size)
+            ranker = PointwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                method=args.pointwise.method,
+                batch_size=args.pointwise.batch_size,
+            )
 
     elif args.setwise:
         if args.run.openai_key:
-            ranker = OpenAiSetwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                            api_key=args.run.openai_key,
-                                            num_child=args.setwise.num_child,
-                                            method=args.setwise.method,
-                                            k=args.setwise.k)
+            ranker = OpenAiSetwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                api_key=args.run.openai_key,
+                num_child=args.setwise.num_child,
+                method=args.setwise.method,
+                k=args.setwise.k,
+            )
         else:
-            ranker = SetwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                      tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                      device=args.run.device,
-                                      cache_dir=args.run.cache_dir,
-                                      num_child=args.setwise.num_child,
-                                      scoring=args.run.scoring,
-                                      method=args.setwise.method,
-                                      num_permutation=args.setwise.num_permutation,
-                                      k=args.setwise.k)
+            ranker = SetwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                num_child=args.setwise.num_child,
+                scoring=args.run.scoring,
+                method=args.setwise.method,
+                num_permutation=args.setwise.num_permutation,
+                k=args.setwise.k,
+            )
 
     elif args.pairwise:
-        if args.pairwise.method != 'allpair':
+        if args.pairwise.method != "allpair":
             args.pairwise.batch_size = 2
-            logger.info(f'Setting batch_size to 2.')
+            logger.info(f"Setting batch_size to 2.")
 
         if args.run.openai_key:
-            ranker = OpenAiPairwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                             api_key=args.run.openai_key,
-                                             method=args.pairwise.method,
-                                             k=args.pairwise.k)
+            ranker = OpenAiPairwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                api_key=args.run.openai_key,
+                method=args.pairwise.method,
+                k=args.pairwise.k,
+            )
 
-        elif 'duot5' in args.run.model_name_or_path:
-            ranker = DuoT5LlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                    tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                    device=args.run.device,
-                                    cache_dir=args.run.cache_dir,
-                                    method=args.pairwise.method,
-                                    batch_size=args.pairwise.batch_size,
-                                    k=args.pairwise.k)
+        elif "duot5" in args.run.model_name_or_path:
+            ranker = DuoT5LlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                method=args.pairwise.method,
+                batch_size=args.pairwise.batch_size,
+                k=args.pairwise.k,
+            )
         else:
-            ranker = PairwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                       tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                       device=args.run.device,
-                                       cache_dir=args.run.cache_dir,
-                                       method=args.pairwise.method,
-                                       batch_size=args.pairwise.batch_size,
-                                       k=args.pairwise.k)
+            ranker = PairwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                method=args.pairwise.method,
+                batch_size=args.pairwise.batch_size,
+                k=args.pairwise.k,
+            )
 
     elif args.listwise:
         if args.run.openai_key:
-            ranker = OpenAiListwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                             api_key=args.run.openai_key,
-                                             window_size=args.listwise.window_size,
-                                             step_size=args.listwise.step_size,
-                                             num_repeat=args.listwise.num_repeat)
+            ranker = OpenAiListwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                api_key=args.run.openai_key,
+                window_size=args.listwise.window_size,
+                step_size=args.listwise.step_size,
+                num_repeat=args.listwise.num_repeat,
+            )
         else:
-            ranker = ListwiseLlmRanker(model_name_or_path=args.run.model_name_or_path,
-                                       tokenizer_name_or_path=args.run.tokenizer_name_or_path,
-                                       device=args.run.device,
-                                       cache_dir=args.run.cache_dir,
-                                       window_size=args.listwise.window_size,
-                                       step_size=args.listwise.step_size,
-                                       scoring=args.run.scoring,
-                                       num_repeat=args.listwise.num_repeat)
+            ranker = ListwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                cache_dir=args.run.cache_dir,
+                window_size=args.listwise.window_size,
+                step_size=args.listwise.step_size,
+                scoring=args.run.scoring,
+                num_repeat=args.listwise.num_repeat,
+            )
     elif args.batchwise:
-        ranker = BatchRanker(num_anchor=args.batchwise.num_anchor,
-                             batch_size=args.batchwise.batch_size,
-                             num_vote=args.batchwise.num_vote,
-                             method=args.batchwise.method,
-                             model_name_or_path=args.run.model_name_or_path,
-                             temperature=args.batchwise.temperature,
-                             use_COT=args.batchwise.use_COT)
+        ranker = BatchRanker(
+            num_anchor=args.batchwise.num_anchor,
+            batch_size=args.batchwise.batch_size,
+            num_vote=args.batchwise.num_vote,
+            method=args.batchwise.method,
+            model_name_or_path=args.run.model_name_or_path,
+            temperature=args.batchwise.temperature,
+            use_COT=args.batchwise.use_COT,
+        )
     else:
-        raise ValueError('Must specify either --pointwise, --setwise, --pairwise or --listwise.')
+        raise ValueError(
+            "Must specify either --pointwise, --setwise, --pairwise or --listwise."
+        )
 
     query_map = {}
     if args.run.ir_dataset_name is not None:
@@ -161,38 +189,48 @@ def main(args):
         dataset = ir_datasets.load(args.run.ir_dataset_name)
         docstore = dataset.docs_store()
     else:
-        topics = get_topics(args.run.pyserini_index+'-test')
+        topics = get_topics(args.run.pyserini_index + "-test")
         for topic_id in list(topics.keys()):
-            text = topics[topic_id]['title']
+            text = topics[topic_id]["title"]
             query_map[str(topic_id)] = ranker.truncate(text, args.run.query_length)
-        docstore = LuceneSearcher.from_prebuilt_index(args.run.pyserini_index+'.flat')
+        docstore = LuceneSearcher.from_prebuilt_index(args.run.pyserini_index + ".flat")
 
-    logger.info(f'Loading first stage run from {args.run.run_path}.')
+    logger.info(f"Loading first stage run from {args.run.run_path}.")
     first_stage_rankings = []
-    with open(args.run.run_path, 'r') as f:
+    with open(args.run.run_path, "r") as f:
         current_qid = None
         current_ranking = []
         for line in tqdm(f):
             qid, _, docid, _, score, _ = line.strip().split()
             if qid != current_qid:
                 if current_qid is not None:
-                    first_stage_rankings.append((current_qid, query_map[current_qid], current_ranking[:args.run.hits]))
+                    first_stage_rankings.append(
+                        (
+                            current_qid,
+                            query_map[current_qid],
+                            current_ranking[: args.run.hits],
+                        )
+                    )
                 current_ranking = []
                 current_qid = qid
             if len(current_ranking) >= args.run.hits:
                 continue
             if args.run.ir_dataset_name is not None:
                 text = docstore.get(docid).text
-                if 'title' in dir(docstore.get(docid)):
-                    text = f'{docstore.get(docid).title} {text}'
+                if "title" in dir(docstore.get(docid)):
+                    text = f"{docstore.get(docid).title} {text}"
             else:
                 data = json.loads(docstore.doc(docid).raw())
-                text = data['text']
-                if 'title' in data:
+                text = data["text"]
+                if "title" in data:
                     text = f'{data["title"]} {text}'
             text = ranker.truncate(text, args.run.passage_length)
-            current_ranking.append(SearchResult(docid=docid, score=float(score), text=text))
-        first_stage_rankings.append((current_qid, query_map[current_qid], current_ranking[:args.run.hits]))
+            current_ranking.append(
+                SearchResult(docid=docid, score=float(score), text=text)
+            )
+        first_stage_rankings.append(
+            (current_qid, query_map[current_qid], current_ranking[: args.run.hits])
+        )
 
     reranked_results = []
     total_comparisons = 0
@@ -202,12 +240,14 @@ def main(args):
     tic = time.time()
     for qid, query, ranking in tqdm(first_stage_rankings):
         if args.run.shuffle_ranking is not None:
-            if args.run.shuffle_ranking == 'random':
+            if args.run.shuffle_ranking == "random":
                 random.shuffle(ranking)
-            elif args.run.shuffle_ranking == 'inverse':
+            elif args.run.shuffle_ranking == "inverse":
                 ranking = ranking[::-1]
             else:
-                raise ValueError(f'Invalid shuffle ranking method: {args.run.shuffle_ranking}.')
+                raise ValueError(
+                    f"Invalid shuffle ranking method: {args.run.shuffle_ranking}."
+                )
         reranked_results.append((qid, query, ranker.rerank(query, ranking)))
         total_comparisons += ranker.total_compare
         total_prompt_tokens += ranker.total_prompt_tokens
@@ -217,74 +257,112 @@ def main(args):
     print(f"Number of reranked queries: {len(reranked_results)}")
     print(f"total prompt tokens: {total_prompt_tokens}")
     print(f"total completion tokens: {total_completion_tokens}")
-    print(f'Avg comparisons: {total_comparisons/len(reranked_results)}')
-    print(f'Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}')
-    print(f'Avg completion tokens: {total_completion_tokens/len(reranked_results)}')
-    print(f'Avg time per query: {(toc-tic)/len(reranked_results)}')
+    print(f"Avg comparisons: {total_comparisons/len(reranked_results)}")
+    print(f"Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}")
+    print(f"Avg completion tokens: {total_completion_tokens/len(reranked_results)}")
+    print(f"Avg time per query: {(toc-tic)/len(reranked_results)}")
 
-    write_run_file(args.run.save_path, reranked_results, 'LLMRankers')
+    write_run_file(args.run.save_path, reranked_results, "LLMRankers")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    commands = parser.add_subparsers(title='sub-commands')
+    commands = parser.add_subparsers(title="sub-commands")
 
-    run_parser = commands.add_parser('run')
-    run_parser.add_argument('--run_path', type=str, help='Path to the first stage run file (TREC format) to rerank.')
-    run_parser.add_argument('--save_path', type=str, help='Path to save the reranked run file (TREC format).')
-    run_parser.add_argument('--model_name_or_path', type=str,
-                            help='Path to the pretrained model or model identifier from huggingface.co/models')
-    run_parser.add_argument('--tokenizer_name_or_path', type=str, default=None,
-                            help='Path to the pretrained tokenizer or tokenizer identifier from huggingface.co/tokenizers')
-    run_parser.add_argument('--ir_dataset_name', type=str, default=None)
-    run_parser.add_argument('--pyserini_index', type=str, default=None)
-    run_parser.add_argument('--hits', type=int, default=100)
-    run_parser.add_argument('--query_length', type=int, default=128)
-    run_parser.add_argument('--passage_length', type=int, default=128)
-    run_parser.add_argument('--device', type=str, default='cuda')
-    run_parser.add_argument('--cache_dir', type=str, default=None)
-    run_parser.add_argument('--openai_key', type=str, default=None)
-    run_parser.add_argument('--scoring', type=str, default='generation', choices=['generation', 'likelihood'])
-    run_parser.add_argument('--shuffle_ranking', type=str, default=None, choices=['inverse', 'random'])
+    run_parser = commands.add_parser("run")
+    run_parser.add_argument(
+        "--run_path",
+        type=str,
+        help="Path to the first stage run file (TREC format) to rerank.",
+    )
+    run_parser.add_argument(
+        "--save_path",
+        type=str,
+        help="Path to save the reranked run file (TREC format).",
+    )
+    run_parser.add_argument(
+        "--model_name_or_path",
+        type=str,
+        help="Path to the pretrained model or model identifier from huggingface.co/models",
+    )
+    run_parser.add_argument(
+        "--tokenizer_name_or_path",
+        type=str,
+        default=None,
+        help="Path to the pretrained tokenizer or tokenizer identifier from huggingface.co/tokenizers",
+    )
+    run_parser.add_argument("--ir_dataset_name", type=str, default=None)
+    run_parser.add_argument("--pyserini_index", type=str, default=None)
+    run_parser.add_argument("--hits", type=int, default=100)
+    run_parser.add_argument("--query_length", type=int, default=128)
+    run_parser.add_argument("--passage_length", type=int, default=128)
+    run_parser.add_argument("--device", type=str, default="cuda")
+    run_parser.add_argument("--cache_dir", type=str, default=None)
+    run_parser.add_argument("--openai_key", type=str, default=None)
+    run_parser.add_argument(
+        "--scoring",
+        type=str,
+        default="generation",
+        choices=["generation", "likelihood"],
+    )
+    run_parser.add_argument(
+        "--shuffle_ranking", type=str, default=None, choices=["inverse", "random"]
+    )
 
-    pointwise_parser = commands.add_parser('pointwise')
-    pointwise_parser.add_argument('--method', type=str, default='yes_no',
-                                  choices=['qlm', 'yes_no'])
-    pointwise_parser.add_argument('--batch_size', type=int, default=2)
+    pointwise_parser = commands.add_parser("pointwise")
+    pointwise_parser.add_argument(
+        "--method", type=str, default="yes_no", choices=["qlm", "yes_no"]
+    )
+    pointwise_parser.add_argument("--batch_size", type=int, default=2)
 
-    pairwise_parser = commands.add_parser('pairwise')
-    pairwise_parser.add_argument('--method', type=str, default='allpair',
-                                 choices=['allpair', 'heapsort', 'bubblesort'])
-    pairwise_parser.add_argument('--batch_size', type=int, default=2)
-    pairwise_parser.add_argument('--k', type=int, default=10)
+    pairwise_parser = commands.add_parser("pairwise")
+    pairwise_parser.add_argument(
+        "--method",
+        type=str,
+        default="allpair",
+        choices=["allpair", "heapsort", "bubblesort"],
+    )
+    pairwise_parser.add_argument("--batch_size", type=int, default=2)
+    pairwise_parser.add_argument("--k", type=int, default=10)
 
-    setwise_parser = commands.add_parser('setwise')
-    setwise_parser.add_argument('--num_child', type=int, default=3)
-    setwise_parser.add_argument('--method', type=str, default='heapsort',
-                                choices=['heapsort', 'bubblesort'])
-    setwise_parser.add_argument('--k', type=int, default=10)
-    setwise_parser.add_argument('--num_permutation', type=int, default=1)
+    setwise_parser = commands.add_parser("setwise")
+    setwise_parser.add_argument("--num_child", type=int, default=3)
+    setwise_parser.add_argument(
+        "--method", type=str, default="heapsort", choices=["heapsort", "bubblesort"]
+    )
+    setwise_parser.add_argument("--k", type=int, default=10)
+    setwise_parser.add_argument("--num_permutation", type=int, default=1)
 
-    listwise_parser = commands.add_parser('listwise')
-    listwise_parser.add_argument('--window_size', type=int, default=3)
-    listwise_parser.add_argument('--step_size', type=int, default=1)
-    listwise_parser.add_argument('--num_repeat', type=int, default=1)
+    listwise_parser = commands.add_parser("listwise")
+    listwise_parser.add_argument("--window_size", type=int, default=3)
+    listwise_parser.add_argument("--step_size", type=int, default=1)
+    listwise_parser.add_argument("--num_repeat", type=int, default=1)
 
-    batchwise_parser = commands.add_parser('batchwise')
-    batchwise_parser.add_argument('--num_anchor', type=int, default=4)
-    batchwise_parser.add_argument('--batch_size', type=int, default=10)
-    batchwise_parser.add_argument('--num_vote', type=int, default=5)
-    batchwise_parser.add_argument('--method', type=str, default='random', choices=['random', 'top', 'none'])
-    batchwise_parser.add_argument('--temperature', type=float, default=0.5)
-    batchwise_parser.add_argument('--use_COT', type=str2bool, default=True, 
-                              help='Use Chain of Thought reasoning')
+    batchwise_parser = commands.add_parser("batchwise")
+    batchwise_parser.add_argument("--num_anchor", type=int, default=4)
+    batchwise_parser.add_argument("--batch_size", type=int, default=10)
+    batchwise_parser.add_argument("--num_vote", type=int, default=5)
+    batchwise_parser.add_argument(
+        "--method", type=str, default="random", choices=["random", "top", "none"]
+    )
+    batchwise_parser.add_argument("--temperature", type=float, default=0.5)
+    batchwise_parser.add_argument(
+        "--use_COT", type=str2bool, default=True, help="Use Chain of Thought reasoning"
+    )
 
     args = parse_args(parser, commands)
 
     if args.run.ir_dataset_name is not None and args.run.pyserini_index is not None:
-        raise ValueError('Must specify either --ir_dataset_name or --pyserini_index, not both.')
+        raise ValueError(
+            "Must specify either --ir_dataset_name or --pyserini_index, not both."
+        )
 
     arg_dict = vars(args)
-    if arg_dict['run'] is None or sum(arg_dict[arg] is not None for arg in arg_dict) != 2:
-        raise ValueError('Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise')
+    if (
+        arg_dict["run"] is None
+        or sum(arg_dict[arg] is not None for arg in arg_dict) != 2
+    ):
+        raise ValueError(
+            "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise"
+        )
     main(args)

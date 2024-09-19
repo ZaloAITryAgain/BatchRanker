@@ -18,16 +18,6 @@ random.seed(929)
 logger = logging.getLogger(__name__)
 
 
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-    
 def parse_args(parser, commands):
     # Divide argv by commands
     split_argv = [[]]
@@ -141,6 +131,7 @@ def main(args):
                                        scoring=args.run.scoring,
                                        num_repeat=args.listwise.num_repeat)
     elif args.batchwise:
+        print(f"use_COT: {args.batchwise.use_COT}")
         ranker = BatchRanker(num_anchor=args.batchwise.num_anchor,
                              batch_size=args.batchwise.batch_size,
                              num_vote=args.batchwise.num_vote,
@@ -215,8 +206,6 @@ def main(args):
     toc = time.time()
 
     print(f"Number of reranked queries: {len(reranked_results)}")
-    print(f"total prompt tokens: {total_prompt_tokens}")
-    print(f"total completion tokens: {total_completion_tokens}")
     print(f'Avg comparisons: {total_comparisons/len(reranked_results)}')
     print(f'Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}')
     print(f'Avg completion tokens: {total_completion_tokens/len(reranked_results)}')
@@ -276,8 +265,7 @@ if __name__ == '__main__':
     batchwise_parser.add_argument('--num_vote', type=int, default=5)
     batchwise_parser.add_argument('--method', type=str, default='random', choices=['random', 'top', 'none'])
     batchwise_parser.add_argument('--temperature', type=float, default=0.5)
-    batchwise_parser.add_argument('--use_COT', type=str2bool, default=True, 
-                              help='Use Chain of Thought reasoning')
+    batchwise_parser.add_argument('--use_COT', type=bool, default=True)
 
     args = parse_args(parser, commands)
 

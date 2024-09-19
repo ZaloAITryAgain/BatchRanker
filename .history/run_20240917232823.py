@@ -18,16 +18,6 @@ random.seed(929)
 logger = logging.getLogger(__name__)
 
 
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-    
 def parse_args(parser, commands):
     # Divide argv by commands
     split_argv = [[]]
@@ -141,13 +131,11 @@ def main(args):
                                        scoring=args.run.scoring,
                                        num_repeat=args.listwise.num_repeat)
     elif args.batchwise:
-        ranker = BatchRanker(num_anchor=args.batchwise.num_anchor,
-                             batch_size=args.batchwise.batch_size,
+        ranker = BatchRanker(num_batch=args.batchwise.num_batch,
                              num_vote=args.batchwise.num_vote,
                              method=args.batchwise.method,
                              model_name_or_path=args.run.model_name_or_path,
-                             temperature=args.batchwise.temperature,
-                             use_COT=args.batchwise.use_COT)
+                             temperature=args.batchwise.temperature)
     else:
         raise ValueError('Must specify either --pointwise, --setwise, --pairwise or --listwise.')
 
@@ -214,9 +202,6 @@ def main(args):
         total_completion_tokens += ranker.total_completion_tokens
     toc = time.time()
 
-    print(f"Number of reranked queries: {len(reranked_results)}")
-    print(f"total prompt tokens: {total_prompt_tokens}")
-    print(f"total completion tokens: {total_completion_tokens}")
     print(f'Avg comparisons: {total_comparisons/len(reranked_results)}')
     print(f'Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}')
     print(f'Avg completion tokens: {total_completion_tokens/len(reranked_results)}')
@@ -271,14 +256,10 @@ if __name__ == '__main__':
     listwise_parser.add_argument('--num_repeat', type=int, default=1)
 
     batchwise_parser = commands.add_parser('batchwise')
-    batchwise_parser.add_argument('--num_anchor', type=int, default=4)
-    batchwise_parser.add_argument('--batch_size', type=int, default=10)
+    batchwise_parser.add_argument('--num_batch', type=int, default=5)
     batchwise_parser.add_argument('--num_vote', type=int, default=5)
-    batchwise_parser.add_argument('--method', type=str, default='random', choices=['random', 'top', 'none'])
+    batchwise_parser.add_argument('--method', type=str, default='random', choices=['random', 'top'])
     batchwise_parser.add_argument('--temperature', type=float, default=0.5)
-    batchwise_parser.add_argument('--use_COT', type=str2bool, default=True, 
-                              help='Use Chain of Thought reasoning')
-
     args = parse_args(parser, commands)
 
     if args.run.ir_dataset_name is not None and args.run.pyserini_index is not None:

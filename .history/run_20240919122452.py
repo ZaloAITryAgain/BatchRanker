@@ -215,8 +215,6 @@ def main(args):
     toc = time.time()
 
     print(f"Number of reranked queries: {len(reranked_results)}")
-    print(f"total prompt tokens: {total_prompt_tokens}")
-    print(f"total completion tokens: {total_completion_tokens}")
     print(f'Avg comparisons: {total_comparisons/len(reranked_results)}')
     print(f'Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}')
     print(f'Avg completion tokens: {total_completion_tokens/len(reranked_results)}')
@@ -276,8 +274,7 @@ if __name__ == '__main__':
     batchwise_parser.add_argument('--num_vote', type=int, default=5)
     batchwise_parser.add_argument('--method', type=str, default='random', choices=['random', 'top', 'none'])
     batchwise_parser.add_argument('--temperature', type=float, default=0.5)
-    batchwise_parser.add_argument('--use_COT', type=str2bool, default=True, 
-                              help='Use Chain of Thought reasoning')
+    batchwise_parser.add_argument('--use_COT', type=bool, default=True)
 
     args = parse_args(parser, commands)
 

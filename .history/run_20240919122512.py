@@ -215,8 +215,6 @@ def main(args):
     toc = time.time()
 
     print(f"Number of reranked queries: {len(reranked_results)}")
-    print(f"total prompt tokens: {total_prompt_tokens}")
-    print(f"total completion tokens: {total_completion_tokens}")
     print(f'Avg comparisons: {total_comparisons/len(reranked_results)}')
     print(f'Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}')
     print(f'Avg completion tokens: {total_completion_tokens/len(reranked_results)}')

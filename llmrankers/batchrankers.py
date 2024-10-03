@@ -53,7 +53,8 @@ class BatchRanker:
         self.total_completion_tokens = 0
         self.total_prompt_tokens = 0
 
-        time.sleep(3)
+        if not self.use_COT:
+            time.sleep(3)
         return asyncio.run(self._rerank(query, ranking))
 
     async def _rerank(

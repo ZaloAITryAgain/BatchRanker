@@ -1,8 +1,8 @@
 python3 run.py \
-  run --model_name_or_path gpt-4o-mini \
+  run --model_name_or_path gpt-3.5-turbo \
       --openai_key $OPENAI_API_KEY \
       --run_path run.msmarco-v1-passage.bm25-default.dl19.txt \
-      --save_path run.batchwise.top.b10.noCOT.txt \
+      --save_path test_data/trec_dl_2019/run.batchwise.top.b10.gpt-3.5-turbo.txt \
       --ir_dataset_name msmarco-passage/trec-dl-2019 \
       --hits 100 \
       --query_length 32 \
@@ -14,4 +14,4 @@ python3 run.py \
            --num_vote 5 \
            --method random \
            --temperature 0.5 \
-           --use_COT false
+           --use_COT true

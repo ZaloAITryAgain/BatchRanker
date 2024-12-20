@@ -6,24 +6,40 @@ from transformers import DataCollatorWithPadding
 from .pairwise import Text2TextGenerationDataset
 import torch
 from tqdm import tqdm
+import asyncio
+import os
+import time
+from openai import AsyncOpenAI
+import tiktoken
 
 
 class PointwiseLlmRanker(LlmRanker):
 
-    def __init__(self, model_name_or_path, tokenizer_name_or_path, device, method="qlm", batch_size=1, cache_dir=None):
-        self.tokenizer = T5Tokenizer.from_pretrained(tokenizer_name_or_path
-                                                     if tokenizer_name_or_path is not None else
-                                                     model_name_or_path,
-                                                     cache_dir=cache_dir)
+    def __init__(
+        self,
+        model_name_or_path,
+        tokenizer_name_or_path,
+        device,
+        method="qlm",
+        batch_size=1,
+        cache_dir=None,
+    ):
+        self.tokenizer = T5Tokenizer.from_pretrained(
+            (tokenizer_name_or_path if tokenizer_name_or_path is not None else model_name_or_path),
+            cache_dir=cache_dir,
+        )
         self.config = AutoConfig.from_pretrained(model_name_or_path, cache_dir=cache_dir)
-        if self.config.model_type == 't5':
-            self.llm = T5ForConditionalGeneration.from_pretrained(model_name_or_path,
-                                                                  device_map='auto',
-                                                                  torch_dtype=torch.float16 if device == 'cuda'
-                                                                  else torch.float32,
-                                                                  cache_dir=cache_dir)
+        if self.config.model_type == "t5":
+            self.llm = T5ForConditionalGeneration.from_pretrained(
+                model_name_or_path,
+                device_map="auto",
+                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                cache_dir=cache_dir,
+            )
         else:
-            raise NotImplementedError(f"Model type {self.config.model_type} is not supported yet for pointwise :(")
+            raise NotImplementedError(
+                f"Model type {self.config.model_type} is not supported yet for pointwise :("
+            )
 
         self.device = device
         self.method = method
@@ -48,31 +64,43 @@ class PointwiseLlmRanker(LlmRanker):
                 collate_fn=DataCollatorWithPadding(
                     self.tokenizer,
                     max_length=512,
-                    padding='longest',
+                    padding="longest",
                 ),
                 shuffle=False,
                 drop_last=False,
-                num_workers=4
+                num_workers=4,
             )
 
-            labels = self.tokenizer.encode(f"<pad> {query}",
-                                           return_tensors="pt",
-                                           add_special_tokens=False).to(self.llm.device).repeat(self.batch_size, 1)
+            labels = (
+                self.tokenizer.encode(
+                    f"<pad> {query}", return_tensors="pt", add_special_tokens=False
+                )
+                .to(self.llm.device)
+                .repeat(self.batch_size, 1)
+            )
             current_id = 0
             with torch.no_grad():
                 for batch_inputs in tqdm(loader):
                     self.total_compare += 1
-                    self.total_prompt_tokens += batch_inputs['input_ids'].shape[0] * batch_inputs['input_ids'].shape[1]
+                    self.total_prompt_tokens += (
+                        batch_inputs["input_ids"].shape[0] * batch_inputs["input_ids"].shape[1]
+                    )
 
-                    batch_labels = labels if labels.shape[0] == len(batch_inputs['input_ids']) \
-                        else labels[:len(batch_inputs['input_ids']), :]  # last batch might be smaller
-                    self.total_prompt_tokens += batch_labels.shape[0] * batch_labels.shape[
-                        1]  # we count decoder inputs as part of prompt.
+                    batch_labels = (
+                        labels
+                        if labels.shape[0] == len(batch_inputs["input_ids"])
+                        else labels[: len(batch_inputs["input_ids"]), :]
+                    )  # last batch might be smaller
+                    self.total_prompt_tokens += (
+                        batch_labels.shape[0] * batch_labels.shape[1]
+                    )  # we count decoder inputs as part of prompt.
 
                     batch_inputs = batch_inputs.to(self.llm.device)
-                    logits = self.llm(input_ids=batch_inputs['input_ids'],
-                                      attention_mask=batch_inputs['attention_mask'],
-                                      labels=batch_labels).logits
+                    logits = self.llm(
+                        input_ids=batch_inputs["input_ids"],
+                        attention_mask=batch_inputs["attention_mask"],
+                        labels=batch_labels,
+                    ).logits
 
                     loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
                     scores = loss_fct(logits.view(-1, logits.size(-1)), batch_labels.view(-1))
@@ -93,30 +121,42 @@ class PointwiseLlmRanker(LlmRanker):
                 collate_fn=DataCollatorWithPadding(
                     self.tokenizer,
                     max_length=512,
-                    padding='longest',
+                    padding="longest",
                 ),
                 shuffle=False,
                 drop_last=False,
-                num_workers=4
+                num_workers=4,
             )
-            decoder_input_ids = torch.Tensor([self.tokenizer.pad_token_id]).to(self.llm.device, dtype=torch.long).repeat(self.batch_size, 1)
+            decoder_input_ids = (
+                torch.Tensor([self.tokenizer.pad_token_id])
+                .to(self.llm.device, dtype=torch.long)
+                .repeat(self.batch_size, 1)
+            )
             current_id = 0
             with torch.no_grad():
                 for batch_inputs in tqdm(loader):
                     self.total_compare += 1
-                    self.total_prompt_tokens += batch_inputs['input_ids'].shape[0] * batch_inputs['input_ids'].shape[1]
+                    self.total_prompt_tokens += (
+                        batch_inputs["input_ids"].shape[0] * batch_inputs["input_ids"].shape[1]
+                    )
 
                     batch_inputs = batch_inputs.to(self.llm.device)
 
-                    batch_decoder_input_ids = decoder_input_ids if decoder_input_ids.shape[0] == len(batch_inputs['input_ids']) \
-                        else decoder_input_ids[:len(batch_inputs['input_ids']), :]  # last batch might be smaller
+                    batch_decoder_input_ids = (
+                        decoder_input_ids
+                        if decoder_input_ids.shape[0] == len(batch_inputs["input_ids"])
+                        else decoder_input_ids[: len(batch_inputs["input_ids"]), :]
+                    )  # last batch might be smaller
 
-                    self.total_prompt_tokens += batch_decoder_input_ids.shape[0] * batch_decoder_input_ids.shape[
-                        1]
+                    self.total_prompt_tokens += (
+                        batch_decoder_input_ids.shape[0] * batch_decoder_input_ids.shape[1]
+                    )
 
-                    logits = self.llm(input_ids=batch_inputs['input_ids'],
-                                      attention_mask=batch_inputs['attention_mask'],
-                                      decoder_input_ids=batch_decoder_input_ids).logits
+                    logits = self.llm(
+                        input_ids=batch_inputs["input_ids"],
+                        attention_mask=batch_inputs["attention_mask"],
+                        decoder_input_ids=batch_decoder_input_ids,
+                    ).logits
                     yes_scores = logits[:, :, yes_id]
                     no_scores = logits[:, :, no_id]
                     batch_scores = torch.cat((yes_scores, no_scores), dim=1)
@@ -147,32 +187,42 @@ class MonoT5LlmRanker(PointwiseLlmRanker):
             collate_fn=DataCollatorWithPadding(
                 self.tokenizer,
                 max_length=512,
-                padding='longest',
+                padding="longest",
             ),
             shuffle=False,
             drop_last=False,
-            num_workers=4
+            num_workers=4,
         )
-        decoder_input_ids = torch.Tensor([self.llm.config.decoder_start_token_id]).to(self.llm.device, dtype=torch.long).repeat(
-            self.batch_size, 1)
+        decoder_input_ids = (
+            torch.Tensor([self.llm.config.decoder_start_token_id])
+            .to(self.llm.device, dtype=torch.long)
+            .repeat(self.batch_size, 1)
+        )
         current_id = 0
         with torch.no_grad():
             for batch_inputs in tqdm(loader):
                 self.total_compare += 1
-                self.total_prompt_tokens += batch_inputs['input_ids'].shape[0] * batch_inputs['input_ids'].shape[1]
+                self.total_prompt_tokens += (
+                    batch_inputs["input_ids"].shape[0] * batch_inputs["input_ids"].shape[1]
+                )
 
                 batch_inputs = batch_inputs.to(self.llm.device)
 
-                batch_decoder_input_ids = decoder_input_ids if decoder_input_ids.shape[0] == len(
-                    batch_inputs['input_ids']) \
-                    else decoder_input_ids[:len(batch_inputs['input_ids']), :]  # last batch might be smaller
+                batch_decoder_input_ids = (
+                    decoder_input_ids
+                    if decoder_input_ids.shape[0] == len(batch_inputs["input_ids"])
+                    else decoder_input_ids[: len(batch_inputs["input_ids"]), :]
+                )  # last batch might be smaller
 
-                self.total_prompt_tokens += batch_decoder_input_ids.shape[0] * batch_decoder_input_ids.shape[
-                    1]
+                self.total_prompt_tokens += (
+                    batch_decoder_input_ids.shape[0] * batch_decoder_input_ids.shape[1]
+                )
 
-                logits = self.llm(input_ids=batch_inputs['input_ids'],
-                                  attention_mask=batch_inputs['attention_mask'],
-                                  decoder_input_ids=batch_decoder_input_ids).logits
+                logits = self.llm(
+                    input_ids=batch_inputs["input_ids"],
+                    attention_mask=batch_inputs["attention_mask"],
+                    decoder_input_ids=batch_decoder_input_ids,
+                ).logits
 
                 # 6136 and 1176 are the indexes of the tokens false and true in T5.
                 batch_scores = logits[:, 0, [6136, 1176]]
@@ -186,4 +236,129 @@ class MonoT5LlmRanker(PointwiseLlmRanker):
         return ranking
 
 
+class OpenAIPointwiseLlmRanker(PointwiseLlmRanker):
+    def __init__(
+        self,
+        model_name_or_path,
+        tokenizer_name_or_path,
+        device,
+        method="qlm",
+        batch_size=1,
+        api_key=None,
+    ):
+        self.model_name_or_path = model_name_or_path
+        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", api_key))
+        self.tokenizer = tiktoken.encoding_for_model(model_name_or_path)
 
+        self.method = method
+        self.batch_size = batch_size
+
+        self.total_compare = 0
+        self.total_completion_tokens = 0
+        self.total_prompt_tokens = 0
+
+    def rerank(
+        self,
+        query: str,
+        ranking: List[SearchResult],
+    ) -> List[SearchResult]:
+        # reset the total counts every time we rerank
+        self.total_compare = 0
+        self.total_completion_tokens = 0
+        self.total_prompt_tokens = 0
+
+        try:
+            # Get the existing event loop if there is one, or create a new one
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the async operation
+            result = loop.run_until_complete(self._rerank(query, ranking))
+
+            return result
+
+        except Exception as e:
+            raise e
+        finally:
+            # Don't close the loop, just clean up the task
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+
+            # Wait until all tasks are cancelled
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+    async def _rerank(
+        self,
+        query: str,
+        ranking: List[SearchResult],
+    ) -> List[SearchResult]:
+
+        if self.method == "qlm":
+            raise NotImplementedError("OpenAI does not support QLM yet")
+
+        elif self.method == "yes_no":
+            prompt = "Passage: {text}\nQuery: {query}\nDoes the passage answer the query? Answer 'Yes' or 'No'"
+            prompts = [prompt.format(text=doc.text, query=query) for doc in ranking]
+            batches = [
+                prompts[i : i + self.batch_size] for i in range(0, len(prompts), self.batch_size)
+            ]
+            print(f"Total batches: {len(batches)}, and total LLM calls: {len(prompts)}")
+
+            current_id = 0
+            for batch in batches:
+                self.total_compare += len(batch)
+
+                completions = await asyncio.gather(*[self.ask_llm(prompt) for prompt in batch])
+                batch_scores = []
+
+                for completion in completions:
+                    self.total_prompt_tokens += completion.usage.prompt_tokens
+                    self.total_completion_tokens += completion.usage.completion_tokens
+
+                    # find the first "yes" and "no" token and gets its logprob
+                    no_logprob, yes_logprob = None, None
+                    for logprob in completion.choices[0].logprobs.content[0].top_logprobs:
+                        token = logprob.token
+                        logprob_value = logprob.logprob
+
+                        if token.lower().strip() == "no":
+                            no_logprob = logprob_value
+                        elif token.lower().strip() == "yes":
+                            yes_logprob = logprob_value
+
+                    if no_logprob is None:
+                        no_logprob = -10e8
+                    if yes_logprob is None:
+                        yes_logprob = -10e8
+
+                    batch_scores.append([no_logprob, yes_logprob])
+
+                batch_scores = torch.tensor(batch_scores)
+                scores = torch.nn.functional.softmax(batch_scores, dim=1)
+                scores = scores[:, 1]  # get the probability of "yes"
+                for score in scores:
+                    ranking[current_id].score = score.item()
+                    current_id += 1
+
+            ranking = sorted(ranking, key=lambda x: x.score, reverse=True)
+            return ranking
+
+        else:
+            raise NotImplementedError(f"Method {self.method} is not implemented")
+
+    async def ask_llm(self, prompt):
+        return await self.client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model=self.model_name_or_path,
+            logprobs=True,
+            top_logprobs=20,
+            n=1,
+        )
+
+    def truncate(self, text, length):
+        return self.tokenizer.decode(self.tokenizer.encode(text)[:length])

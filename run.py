@@ -2,25 +2,45 @@ import logging
 import ir_datasets
 from pyserini.search.lucene import LuceneSearcher
 from pyserini.search._base import get_topics
-from llmrankers.batchrankers import BatchRanker
+from sympy import use
+from llmrankers.batchrankers import OpenAiBatchRanker, OpenaiBatchRanker
 from llmrankers.rankers import SearchResult
-from llmrankers.pointwise import PointwiseLlmRanker, MonoT5LlmRanker
-from llmrankers.setwise import SetwiseLlmRanker, OpenAiSetwiseLlmRanker
+from llmrankers.pointwise import PointwiseLlmRanker, MonoT5LlmRanker, OpenAIPointwiseLlmRanker
+from llmrankers.setwise import SetwiseLlmRanker, OpenAISetwiseLlmRanker
 from llmrankers.pairwise import (
     PairwiseLlmRanker,
     DuoT5LlmRanker,
-    OpenAiPairwiseLlmRanker,
+    OpenAIPairwiseLlmRanker,
 )
-from llmrankers.listwise import OpenAiListwiseLlmRanker, ListwiseLlmRanker
+from llmrankers.listwise import OpenAIListwiseLlmRanker, ListwiseLlmRanker
+from beir.retrieval.evaluation import EvaluateRetrieval
+from beir import LoggingHandler
 from tqdm import tqdm
 import argparse
 import sys
 import json
 import time
 import random
+import os
+from eval import load_qrels_for_evaluation
+
+from llmrankers.chunkrankers import OpenaiChunkRanker, VLLMChunkRanker
+import asyncio
+
+# convert to price
+from llmrankers.utils.pricing import get_pricing
+
 
 random.seed(929)
 logger = logging.getLogger(__name__)
+
+#### Just some code to print debug information to stdout
+logging.basicConfig(
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+    handlers=[LoggingHandler()],
+)
 
 
 def str2bool(v):
@@ -69,7 +89,16 @@ def write_run_file(path, results, tag):
 def main(args):
 
     if args.pointwise:
-        if "monot5" in args.run.model_name_or_path:
+        if args.run.openai_key:
+            ranker = OpenAIPointwiseLlmRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                tokenizer_name_or_path=args.run.tokenizer_name_or_path,
+                device=args.run.device,
+                api_key=args.run.openai_key,
+                method=args.pointwise.method,
+                batch_size=args.pointwise.batch_size,
+            )
+        elif "monot5" in args.run.model_name_or_path:
             ranker = MonoT5LlmRanker(
                 model_name_or_path=args.run.model_name_or_path,
                 tokenizer_name_or_path=args.run.tokenizer_name_or_path,
@@ -90,7 +119,7 @@ def main(args):
 
     elif args.setwise:
         if args.run.openai_key:
-            ranker = OpenAiSetwiseLlmRanker(
+            ranker = OpenAISetwiseLlmRanker(
                 model_name_or_path=args.run.model_name_or_path,
                 api_key=args.run.openai_key,
                 num_child=args.setwise.num_child,
@@ -116,7 +145,7 @@ def main(args):
             logger.info(f"Setting batch_size to 2.")
 
         if args.run.openai_key:
-            ranker = OpenAiPairwiseLlmRanker(
+            ranker = OpenAIPairwiseLlmRanker(
                 model_name_or_path=args.run.model_name_or_path,
                 api_key=args.run.openai_key,
                 method=args.pairwise.method,
@@ -146,11 +175,12 @@ def main(args):
 
     elif args.listwise:
         if args.run.openai_key:
-            ranker = OpenAiListwiseLlmRanker(
+            ranker = OpenAIListwiseLlmRanker(
                 model_name_or_path=args.run.model_name_or_path,
                 api_key=args.run.openai_key,
                 window_size=args.listwise.window_size,
                 step_size=args.listwise.step_size,
+                scoring=args.run.scoring,
                 num_repeat=args.listwise.num_repeat,
             )
         else:
@@ -164,20 +194,38 @@ def main(args):
                 scoring=args.run.scoring,
                 num_repeat=args.listwise.num_repeat,
             )
+
     elif args.batchwise:
-        ranker = BatchRanker(
-            num_anchor=args.batchwise.num_anchor,
-            batch_size=args.batchwise.batch_size,
-            num_vote=args.batchwise.num_vote,
-            method=args.batchwise.method,
-            model_name_or_path=args.run.model_name_or_path,
-            temperature=args.batchwise.temperature,
-            use_COT=args.batchwise.use_COT,
-        )
+        # ranker = OpenAiBatchRanker(
+        # ranker = OpenaiBatchRanker(
+        if args.batchwise.use_vllm:
+            ranker = VLLMChunkRanker(
+                model_name_or_path=args.run.model_name_or_path,
+                base_url=args.batchwise.vllm_url,
+                batch_size=args.batchwise.batch_size,
+                num_vote=args.batchwise.num_vote,
+                method=args.batchwise.method,
+                temperature=args.batchwise.temperature,
+                num_anchor=args.batchwise.num_anchor,
+                use_COT=args.batchwise.use_COT,
+                use_COT_anchor=args.batchwise.use_COT_anchor,
+                guided_decoding_backend=args.batchwise.vllm_guided_decoding_backend,
+            )
+        else:
+            ranker = OpenaiChunkRanker(
+                num_anchor=args.batchwise.num_anchor,
+                batch_size=args.batchwise.batch_size,
+                num_vote=args.batchwise.num_vote,
+                method=args.batchwise.method,
+                model_name_or_path=args.run.model_name_or_path,
+                temperature=args.batchwise.temperature,
+                use_COT=args.batchwise.use_COT,
+                use_COT_anchor=args.batchwise.use_COT_anchor,
+            )
     else:
-        raise ValueError(
-            "Must specify either --pointwise, --setwise, --pairwise or --listwise."
-        )
+        raise ValueError("Must specify either --pointwise, --setwise, --pairwise or --listwise.")
+
+    print(f"Ranker: {ranker}")
 
     query_map = {}
     if args.run.ir_dataset_name is not None:
@@ -195,74 +243,157 @@ def main(args):
             query_map[str(topic_id)] = ranker.truncate(text, args.run.query_length)
         docstore = LuceneSearcher.from_prebuilt_index(args.run.pyserini_index + ".flat")
 
-    logger.info(f"Loading first stage run from {args.run.run_path}.")
-    first_stage_rankings = []
-    with open(args.run.run_path, "r") as f:
-        current_qid = None
-        current_ranking = []
-        for line in tqdm(f):
-            qid, _, docid, _, score, _ = line.strip().split()
-            if qid != current_qid:
-                if current_qid is not None:
-                    first_stage_rankings.append(
-                        (
-                            current_qid,
-                            query_map[current_qid],
-                            current_ranking[: args.run.hits],
+    run_stats = {}
+    if not args.run.skip_rerank:
+        logger.info(f"Loading first stage run from {args.run.run_path}.")
+        first_stage_rankings = []
+        with open(args.run.run_path, "r") as f:
+            current_qid, current_ranking = None, []
+            for line in tqdm(f):
+                # 19335 Q0 8412684 1 10.606700 Anserini
+                qid, _, docid, _, score, _ = line.strip().split()
+                if qid != current_qid:
+                    if current_qid is not None:
+                        first_stage_rankings.append(
+                            (current_qid, query_map[current_qid], current_ranking[: args.run.hits])
                         )
-                    )
-                current_ranking = []
-                current_qid = qid
-            if len(current_ranking) >= args.run.hits:
-                continue
-            if args.run.ir_dataset_name is not None:
-                text = docstore.get(docid).text
-                if "title" in dir(docstore.get(docid)):
-                    text = f"{docstore.get(docid).title} {text}"
-            else:
-                data = json.loads(docstore.doc(docid).raw())
-                text = data["text"]
-                if "title" in data:
-                    text = f'{data["title"]} {text}'
-            text = ranker.truncate(text, args.run.passage_length)
-            current_ranking.append(
-                SearchResult(docid=docid, score=float(score), text=text)
+                    current_ranking = []
+                    current_qid = qid
+                if len(current_ranking) >= args.run.hits:
+                    continue
+                if args.run.ir_dataset_name is not None:
+                    text = docstore.get(docid).text
+                    if "title" in dir(docstore.get(docid)):
+                        text = f"{docstore.get(docid).title} {text}"
+                else:
+                    data = json.loads(docstore.doc(docid).raw())
+                    text = data["text"]
+                    if "title" in data:
+                        text = f'{data["title"]} {text}'
+                text = ranker.truncate(text, args.run.passage_length)
+                current_ranking.append(SearchResult(docid=docid, score=float(score), text=text))
+            first_stage_rankings.append(
+                (current_qid, query_map[current_qid], current_ranking[: args.run.hits])
             )
-        first_stage_rankings.append(
-            (current_qid, query_map[current_qid], current_ranking[: args.run.hits])
-        )
 
-    reranked_results = []
-    total_comparisons = 0
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
+        reranked_results = []
+        total_comparisons = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
 
-    tic = time.time()
-    for qid, query, ranking in tqdm(first_stage_rankings):
-        if args.run.shuffle_ranking is not None:
-            if args.run.shuffle_ranking == "random":
-                random.shuffle(ranking)
-            elif args.run.shuffle_ranking == "inverse":
-                ranking = ranking[::-1]
-            else:
-                raise ValueError(
-                    f"Invalid shuffle ranking method: {args.run.shuffle_ranking}."
+        tic = time.time()
+        for qid, query, ranking in tqdm(first_stage_rankings):
+            if args.run.shuffle_ranking is not None:
+                if args.run.shuffle_ranking == "random":
+                    random.shuffle(ranking)
+                elif args.run.shuffle_ranking == "inverse":
+                    ranking = ranking[::-1]
+                else:
+                    raise ValueError(f"Invalid shuffle ranking method: {args.run.shuffle_ranking}.")
+            reranked_results.append((qid, query, ranker.rerank(query, ranking)))
+            total_comparisons += ranker.total_compare
+            total_prompt_tokens += ranker.total_prompt_tokens
+            total_completion_tokens += ranker.total_completion_tokens
+
+            print(f"Current total prompt tokens: {total_prompt_tokens:,}")
+            print(f"Current total completion tokens: {total_completion_tokens:,}")
+            if "gpt" in args.run.model_name_or_path:
+                prices = get_pricing(
+                    args.run.model_name_or_path, total_prompt_tokens, total_completion_tokens
                 )
-        reranked_results.append((qid, query, ranker.rerank(query, ranking)))
-        total_comparisons += ranker.total_compare
-        total_prompt_tokens += ranker.total_prompt_tokens
-        total_completion_tokens += ranker.total_completion_tokens
-    toc = time.time()
+                avg_prices_per_query = {k: v / len(reranked_results) for k, v in prices.items()}
+                estimated_total_cost = {
+                    k: v * len(first_stage_rankings) for k, v in avg_prices_per_query.items()
+                }
+                prices = {k: f"{v:.4f}$" for k, v in prices.items()}
+                avg_prices_per_query = {k: f"{v:.4f}$" for k, v in avg_prices_per_query.items()}
+                estimated_total_cost = {k: f"{v:.4f}$" for k, v in estimated_total_cost.items()}
 
-    print(f"Number of reranked queries: {len(reranked_results)}")
-    print(f"total prompt tokens: {total_prompt_tokens}")
-    print(f"total completion tokens: {total_completion_tokens}")
-    print(f"Avg comparisons: {total_comparisons/len(reranked_results)}")
-    print(f"Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}")
-    print(f"Avg completion tokens: {total_completion_tokens/len(reranked_results)}")
-    print(f"Avg time per query: {(toc-tic)/len(reranked_results)}")
+                print(f"Total prices: {prices}")
+                print(f"Avg prices per query: {avg_prices_per_query}")
+                print(f"Estimated total cost: {estimated_total_cost}")
 
-    write_run_file(args.run.save_path, reranked_results, "LLMRankers")
+        toc = time.time()
+        if args.batchwise:
+            toc -= ranker.delay_per_query * len(reranked_results)  # delay for each query
+            toc -= ranker.extra_time_for_asyncio  # extra time for handling asyncio
+
+        print(f"Number of reranked queries: {len(reranked_results)}")
+        print(f"total prompt tokens: {total_prompt_tokens}")
+        print(f"total completion tokens: {total_completion_tokens}")
+        print(f"Avg comparisons: {total_comparisons/len(reranked_results)}")
+        print(f"Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}")
+        print(f"Avg completion tokens: {total_completion_tokens/len(reranked_results)}")
+        print(f"Avg time per query: {(toc-tic)/len(reranked_results)}")
+
+        run_stats = {
+            "n_queries": len(reranked_results),
+            "num_prompt_tokens": total_prompt_tokens,
+            "num_completion_tokens": total_completion_tokens,
+            "num_comparisons": total_comparisons,
+            "avg_prompt_tokens": total_prompt_tokens / len(reranked_results),
+            "avg_completion_tokens": total_completion_tokens / len(reranked_results),
+            "avg_comparisons": total_comparisons / len(reranked_results),
+            "avg_time_per_query": (toc - tic) / len(reranked_results),
+        }
+        if "gpt" in args.run.model_name_or_path:
+            prices = get_pricing(
+                args.run.model_name_or_path, total_prompt_tokens, total_completion_tokens
+            )
+            avg_prices_per_query = {k: v / len(reranked_results) for k, v in prices.items()}
+
+            prices = {k: f"{v:.4f}$" for k, v in prices.items()}
+            avg_prices_per_query = {k: f"{v:.4f}$" for k, v in avg_prices_per_query.items()}
+
+            run_stats["prices"] = prices
+            run_stats["avg_prices_per_query"] = avg_prices_per_query
+
+        os.makedirs(os.path.dirname(args.run.save_path), exist_ok=True)
+        write_run_file(args.run.save_path, reranked_results, "LLMRankers")
+
+    if args.eval:
+        rerank_result_path = args.run.save_path
+        dataset_name = args.eval.dataset_name or args.run.ir_dataset_name
+        qrels = load_qrels_for_evaluation(dataset_name)
+        k_values = [int(k) for k in args.eval.k_values.split(",")]
+
+        rerank_results_for_eval = {}
+        for line in open(rerank_result_path, "r"):
+            query_id, _, doc_id, rank, score, _ = line.strip().split("\t")
+            if query_id not in rerank_results_for_eval:
+                rerank_results_for_eval[query_id] = {}
+            rerank_results_for_eval[query_id][doc_id] = float(score)
+        # for qid, _, ranking in reranked_results:
+        #     rerank_results_for_eval[qid] = {}
+        #     for doc in ranking:
+        #         docid = doc.docid
+        #         score = doc.score
+        #         rerank_results_for_eval[qid][docid] = float(score)
+
+        ndcg, _map, recall, precision = EvaluateRetrieval.evaluate(
+            qrels, rerank_results_for_eval, k_values=k_values
+        )
+        mrr = EvaluateRetrieval.evaluate_custom(
+            qrels, rerank_results_for_eval, metric="mrr", k_values=k_values
+        )
+        eval_results = {
+            "NDCG": ndcg,
+            "MAP": _map,
+            "Recall": recall,
+            "Precision": precision,
+            "MRR": mrr,
+            **run_stats,
+        }
+        with open(args.run.save_path.replace(".txt", ".json"), "w") as f:
+            json.dump(eval_results, f, indent=4, ensure_ascii=False)
+        logger.info(f"Written evaluation results to {args.run.save_path.replace('.txt', '.json')}.")
+    print("Done!")
+
+
+async def stop():
+    loop = asyncio.get_event_loop()
+    loop.stop()
+    loop.close()
 
 
 if __name__ == "__main__":
@@ -308,11 +439,16 @@ if __name__ == "__main__":
     run_parser.add_argument(
         "--shuffle_ranking", type=str, default=None, choices=["inverse", "random"]
     )
-
-    pointwise_parser = commands.add_parser("pointwise")
-    pointwise_parser.add_argument(
-        "--method", type=str, default="yes_no", choices=["qlm", "yes_no"]
+    run_parser.add_argument(
+        "--skip_rerank",
+        type=str2bool,
+        default=False,
+        help="Skip reranking to go to evaluation or the next step.",
     )
+
+    # Pointwise reranking
+    pointwise_parser = commands.add_parser("pointwise")
+    pointwise_parser.add_argument("--method", type=str, default="yes_no", choices=["qlm", "yes_no"])
     pointwise_parser.add_argument("--batch_size", type=int, default=2)
 
     pairwise_parser = commands.add_parser("pairwise")
@@ -325,6 +461,7 @@ if __name__ == "__main__":
     pairwise_parser.add_argument("--batch_size", type=int, default=2)
     pairwise_parser.add_argument("--k", type=int, default=10)
 
+    # Setwise reranking
     setwise_parser = commands.add_parser("setwise")
     setwise_parser.add_argument("--num_child", type=int, default=3)
     setwise_parser.add_argument(
@@ -333,11 +470,13 @@ if __name__ == "__main__":
     setwise_parser.add_argument("--k", type=int, default=10)
     setwise_parser.add_argument("--num_permutation", type=int, default=1)
 
+    # Listwise reranking
     listwise_parser = commands.add_parser("listwise")
     listwise_parser.add_argument("--window_size", type=int, default=3)
     listwise_parser.add_argument("--step_size", type=int, default=1)
     listwise_parser.add_argument("--num_repeat", type=int, default=1)
 
+    # Batchwise reranking
     batchwise_parser = commands.add_parser("batchwise")
     batchwise_parser.add_argument("--num_anchor", type=int, default=4)
     batchwise_parser.add_argument("--batch_size", type=int, default=10)
@@ -349,18 +488,46 @@ if __name__ == "__main__":
     batchwise_parser.add_argument(
         "--use_COT", type=str2bool, default=True, help="Use Chain of Thought reasoning"
     )
+    batchwise_parser.add_argument(
+        "--use_COT_anchor",
+        type=str2bool,
+        default=True,
+        help="Use Chain of Thought reasoning when ranking scores for anchors",
+    )
+    batchwise_parser.add_argument(
+        "--use_vllm", type=str2bool, default=False, help="Use vLLM server"
+    )
+    batchwise_parser.add_argument("--vllm_url", type=str, default="http://0.0.0.0:8000/v1")
+    batchwise_parser.add_argument("--vllm_guided_decoding_backend", type=str, default="outlines")
+
+    # Evaluation
+    eval_parser = commands.add_parser("eval")
+    eval_parser.add_argument("--dataset_name", type=str)
+    eval_parser.add_argument(
+        "--k_values",
+        type=str,
+        default="3,5,10,25,50,100",
+        help="Comma separated list of k values. Default: 3,5,10,25,50,100",
+    )
+    eval_parser.add_argument(
+        "--eval_output_file",
+        type=str,
+        help="Path to save the evaluation results. If not specified, use the same path as the run file but the format is .json.",
+    )
 
     args = parse_args(parser, commands)
 
     if args.run.ir_dataset_name is not None and args.run.pyserini_index is not None:
+        raise ValueError("Must specify either --ir_dataset_name or --pyserini_index, not both.")
+
+    if args.eval and (args.eval.dataset_name is None and args.eval.ir_dataset_name is None):
         raise ValueError(
-            "Must specify either --ir_dataset_name or --pyserini_index, not both."
+            "Must specify --dataset_name in eval args or --ir_dataset_name in run args to run evaluation after reranking."
         )
 
     arg_dict = vars(args)
-    if (
-        arg_dict["run"] is None
-        or sum(arg_dict[arg] is not None for arg in arg_dict) != 2
+    if arg_dict["run"] is None or (
+        sum(arg_dict[arg] is not None for arg in arg_dict) != 2 and "eval" not in arg_dict
     ):
         raise ValueError(
             "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise"

@@ -13,6 +13,7 @@ from llmrankers.pairwise import (
     OpenAIPairwiseLlmRanker,
 )
 from llmrankers.listwise import OpenAIListwiseLlmRanker, ListwiseLlmRanker
+from llmrankers.tourwise import TourwiseLlmRanker
 from beir.retrieval.evaluation import EvaluateRetrieval
 from beir import LoggingHandler
 from tqdm import tqdm
@@ -222,8 +223,17 @@ def main(args):
                 use_COT=args.batchwise.use_COT,
                 use_COT_anchor=args.batchwise.use_COT_anchor,
             )
+
+    elif args.tourwise:
+        ranker = TourwiseLlmRanker(
+            model_name_or_path=args.run.model_name_or_path,
+            batch_size=args.tourwise.batch_size,
+            num_tournaments=args.tourwise.num_tournaments,
+            temperature=args.tourwise.temperature,
+            api_key=args.run.openai_key,
+        )
     else:
-        raise ValueError("Must specify either --pointwise, --setwise, --pairwise or --listwise.")
+        raise ValueError("Must specify either --pointwise, --setwise, --pairwise, --listwise, --batchwise, or --tourwise.")
 
     print(f"Ranker: {ranker}")
 
@@ -500,6 +510,12 @@ if __name__ == "__main__":
     batchwise_parser.add_argument("--vllm_url", type=str, default="http://0.0.0.0:8000/v1")
     batchwise_parser.add_argument("--vllm_guided_decoding_backend", type=str, default="outlines")
 
+    # Tourwise reranking
+    tourwise_parser = commands.add_parser("tourwise")
+    tourwise_parser.add_argument("--batch_size", type=int, default=10)
+    tourwise_parser.add_argument("--num_tournaments", type=int, default=10)
+    tourwise_parser.add_argument("--temperature", type=float, default=0.5)
+
     # Evaluation
     eval_parser = commands.add_parser("eval")
     eval_parser.add_argument("--dataset_name", type=str)
@@ -530,6 +546,6 @@ if __name__ == "__main__":
         sum(arg_dict[arg] is not None for arg in arg_dict) != 2 and "eval" not in arg_dict
     ):
         raise ValueError(
-            "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise"
+            "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise, or --tourwise"
         )
     main(args)

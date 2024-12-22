@@ -1,6 +1,6 @@
 # llm-rankers
-Pointwise, Listwise, Pairwise and [Setwise](https://arxiv.org/pdf/2310.09497.pdf) Document Ranking with Large Language Models.
-> Our Setwise paper has been accepted at SIGIR2024!
+Pointwise, Listwise, Pairwise, [Setwise](https://arxiv.org/pdf/2310.09497.pdf), and Chunkwise/Batchwise Document Ranking with Large Language Models.
+> Our Chunkwise/Batchwise paper is being worked on.
 
 ---
 ## Installation
@@ -32,6 +32,7 @@ accelerate==0.22.0
 ## Python code example:
 
 ```Python
+# Example using Setwise ranking
 from llmrankers.setwise import SetwiseLlmRanker
 from llmrankers.rankers import SearchResult
 
@@ -47,10 +48,25 @@ ranker = SetwiseLlmRanker(model_name_or_path='google/flan-t5-large',
                           k=10)
 
 print(ranker.rerank(query, docs)[0])
+
+# Example using Chunkwise/Batchwise ranking
+from llmrankers.chunkrankers import BaseChunkwiseRanker
+
+ranker = BaseChunkwiseRanker(model_name_or_path='google/flan-t5-large',
+                            tokenizer_name_or_path='google/flan-t5-large',
+                            batch_size=10,  # Size of each batch for ranking
+                            num_vote=5,     # Number of voting iterations
+                            method='random', # Method for selecting anchor documents ('random', 'top', or 'none')
+                            temperature=0.5, # Temperature for LLM sampling
+                            num_anchor=5,    # Number of anchor documents
+                            use_COT=False)   # Whether to use Chain of Thought reasoning
+
+reranked_docs = ranker.rerank(query, docs)
 ```
 ---
 
-## Experiment examples (TREC DL and BEIR)
+## Ranking Methods
+
 ### First-stage runs
 We use LLMs to re-rank top documents retrieved by a first-stage retriever. In this repo we take BM25 as the retriever.
 
@@ -83,7 +99,29 @@ In this repository, we use DL 2019 as an example. That is, we always re-rank `ru
 
 --- 
 
-### Re-rank first stage run with LLMs
+### Chunkwise/Batchwise Ranking
+The chunkwise/batchwise approach performs document ranking in batches to improve efficiency and handle large document sets. The process involves:
+
+1. **Anchor Selection**: Select top documents as anchors using one of three methods:
+   - `random`: Randomly sample documents as anchors
+   - `top`: Select documents with highest initial scores
+   - `none`: No anchor documents
+
+2. **Batch Processing**: 
+   - Documents are processed in batches of configurable size
+   - Each batch is scored relative to the anchor documents
+   - Optional Chain of Thought (CoT) reasoning for improved accuracy
+
+3. **Score Aggregation**:
+   - Scores from multiple voting iterations are aggregated
+   - Final ranking is determined using median scores
+
+This method is particularly effective for:
+- Large document collections
+- Scenarios requiring efficient batch processing
+- Cases where relative document comparisons are important
+
+### Other Ranking Methods
 
 <details>
 <summary>Pointwise</summary>
@@ -363,7 +401,7 @@ ndcg_cut_10             all     0.7675
 
 [4] Zhen Qin, Rolf Jagerman, Kai Hui, Honglei Zhuang, Junru Wu, Jiaming Shen, Tianqi Liu, Jialu Liu, Donald Metzler, Xuanhui Wang, and Michael Bendersky, *Large Language Models are Effective Text Rankers with Pairwise Ranking Prompting*, Findings: NAACL 2024
 
-
+[5] Zhuang, H., Qin, Z., Hui, K., Wu, J., Yan, L., Wang, X., and Bendersky, M., *Beyond yes and no: Improving zero-shot llm rankers via scoring fine-grained relevance labels*. Findings: NAACL 2024.
 
 ---
 ## 🙏 Citation

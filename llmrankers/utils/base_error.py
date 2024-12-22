@@ -42,6 +42,7 @@ class ClientException(Exception):
         self.message = message
         super().__init__(message)
 
+
 class ServerError(BaseError):
     INTERNAL_SERVER_ERROR = BaseError(
         status=HTTPStatus.INTERNAL_SERVER_ERROR,

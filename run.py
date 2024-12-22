@@ -354,7 +354,6 @@ def main(args):
     if args.eval:
         rerank_result_path = args.run.save_path
         dataset_name = args.eval.dataset_name or args.run.ir_dataset_name
-        qrels = load_qrels_for_evaluation(dataset_name)
         k_values = [int(k) for k in args.eval.k_values.split(",")]
 
         rerank_results_for_eval = {}
@@ -363,6 +362,9 @@ def main(args):
             if query_id not in rerank_results_for_eval:
                 rerank_results_for_eval[query_id] = {}
             rerank_results_for_eval[query_id][doc_id] = float(score)
+
+        query_ids = list(rerank_results_for_eval.keys())
+        qrels = load_qrels_for_evaluation(dataset_name, query_ids)
         # for qid, _, ranking in reranked_results:
         #     rerank_results_for_eval[qid] = {}
         #     for doc in ranking:
@@ -373,20 +375,34 @@ def main(args):
         ndcg, _map, recall, precision = EvaluateRetrieval.evaluate(
             qrels, rerank_results_for_eval, k_values=k_values
         )
-        mrr = EvaluateRetrieval.evaluate_custom(
-            qrels, rerank_results_for_eval, metric="mrr", k_values=k_values
+        try:  # Error on TREC-DL 2020
+            mrr = EvaluateRetrieval.evaluate_custom(
+                qrels, rerank_results_for_eval, metric="mrr", k_values=k_values
+            )
+        except Exception as e:
+            mrr = None
+            logger.warning(f"Error calculating MRR: {e}")
+
+        eval_output_file = args.run.save_path.replace(".txt", ".json")
+        if os.path.exists(eval_output_file):
+            eval_results = json.load(open(eval_output_file, "r"))
+            logger.info(f"Loaded existing evaluation results from {eval_output_file}.")
+        else:
+            eval_results = {}
+            logger.info(f"New evaluation results file will be written to {eval_output_file}.")
+        eval_results.update(
+            {
+                "NDCG": ndcg,
+                "MAP": _map,
+                "Recall": recall,
+                "Precision": precision,
+                "MRR": mrr,
+                **run_stats,
+            }
         )
-        eval_results = {
-            "NDCG": ndcg,
-            "MAP": _map,
-            "Recall": recall,
-            "Precision": precision,
-            "MRR": mrr,
-            **run_stats,
-        }
-        with open(args.run.save_path.replace(".txt", ".json"), "w") as f:
+        with open(eval_output_file, "w") as f:
             json.dump(eval_results, f, indent=4, ensure_ascii=False)
-        logger.info(f"Written evaluation results to {args.run.save_path.replace('.txt', '.json')}.")
+        logger.info(f"Written evaluation results to {eval_output_file}.")
     print("Done!")
 
 

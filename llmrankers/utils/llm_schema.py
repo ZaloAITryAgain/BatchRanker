@@ -65,7 +65,7 @@ class MultiGenerationsResponse(BaseModel):
     results: List[BaseModel]
     completion_tokens: int = 0
     prompt_tokens: int = 0
-    _raw_response: Any
+    _raw_response: Any = None
 
     def __iter__(self) -> Iterator[BaseModel]:
         return iter(self.results)
@@ -198,6 +198,7 @@ class Model(str, Enum):
     openai_gpt_3_5_turbo = "gpt-3.5-turbo"
     openai_gpt_4o_mini = "gpt-4o-mini"
 
+
 class Criteria(str, Enum):
     INCLUSION = "inclusion"
     EXCLUSION = "exclusion"
@@ -265,6 +266,7 @@ class ScoreResult(CoreModel):
     matching_score: float
     agg_score: float
 
+
 class PatientSummaryInfo(CoreModel):
     summary: str
 
@@ -291,16 +293,25 @@ class PatientExtractedInfo(CoreModel):
 
 
 class TrialScoringResponse(CoreModel):
-    trial_number: int = Field(description="The trial number")
-    relevance_score: float = Field(description="The relevance score of the trial")
+    trial_number: int = Field(
+        # description="The trial number",
+        description="The trial id number",
+    )
+    relevance_score: float = Field(
+        # description="The relevance score of the trial",
+        description="The relevance score of the corresponding trial",
+    )
 
 
 class TrialScoringBatchResponse(CoreModel):
-    reasoning: str = Field(description="The reasoning of the scoring")
+    reasoning: str = Field(
+        # description="The reasoning of the scoring",
+    )
     trial_scores: list[TrialScoringResponse] = Field(
         description="The list of scoring results",
         default_factory=list,
     )
+
 
 class TrialScoringNoCOTBatchResponse(CoreModel):
     trial_scores: list[TrialScoringResponse] = Field(
@@ -309,4 +320,45 @@ class TrialScoringNoCOTBatchResponse(CoreModel):
     )
 
 
+class DocumentRelevanceScoresWithReasonBatchResponse(CoreModel):
+    class DocumentRelevanceScoreWithReason(CoreModel):
+        document_id: int = Field(
+            description="The document id number",
+        )
+        relevance_score: float = Field(
+            description="The relevance score of the corresponding document relative to the query",
+        )
+        reasoning: str = Field(
+            # description="The reasoning of the scoring",
+            description="The detailed reason why the document is scored as such",
+        )
+
+    document_scores: list[DocumentRelevanceScoreWithReason] = Field(
+        description="The list of scoring results",
+        default_factory=list,
+    )
+    # reasoning: str = Field(
+    #     # description="The reasoning of the scoring",
+    #     description="The reasoning of the scoring",
+    # )
+
+
+class DocumentRelevanceScoresBatchResponse(CoreModel):
+    class DocumentRelevanceScore(CoreModel):
+        document_id: int = Field(
+            description="The document id number",
+        )
+        relevance_score: float = Field(
+            description="The relevance score of the corresponding document relative to the query",
+        )
+
+    document_scores: list[DocumentRelevanceScore] = Field(
+        description="The list of scoring results",
+        default_factory=list,
+    )
+
+
 BatchScoringResponseType = Union[MultiGenerationsResponse, TrialScoringBatchResponse]
+
+if __name__ == "__main__":
+    print(TrialScoringNoCOTBatchResponse.model_json_schema())

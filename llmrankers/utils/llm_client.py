@@ -43,8 +43,8 @@ class LLMClient:
 
         key = LLMClient._openai_key()
         self._openai_client = AsyncOpenAI(api_key=key)
+        # self._openai_client = AsyncOpenAI(api_key=key, base_url="http://0.0.0.0:8999")
         self.client = instructor.from_openai(client=self._openai_client)
-
 
     ################################################################################
     #                                                                              #
@@ -52,33 +52,7 @@ class LLMClient:
     #                                                                              #
     ################################################################################
 
-    def embed(
-        self,
-        texts: Union[str, List[str]],
-        model: Optional[str] = None,
-        litellm_kwargs: LiteLLMKwargs = LiteLLMKwargs(),
-        **additional_kwargs: Any,
-    ) -> List[List[float]]:
-        # Merge litellm_kwargs with additional_kwargs
-        all_kwargs = LiteLLMKwargs(
-            **(litellm_kwargs.dict(exclude_none=True) | additional_kwargs)
-        )
-
-        response = self._get_embeddings_response(
-            texts=texts,
-            model=model,
-            litellm_kwargs=all_kwargs,
-        )
-
-        # Return the embeddings as a list of lists of floats
-        try:
-            if litellm_kwargs.aws_access_key_id is not None:
-                # bedrock can't handle batches
-                return [result["embedding"] for result in response.data]
-            return [result.embedding for result in response.data]
-        except AttributeError:
-            return [result["embedding"] for result in response.data]
-
+    # Must have
     async def acompletion(
         self,
         messages: List[Dict[str, Any]],
@@ -87,9 +61,7 @@ class LLMClient:
         **additional_kwargs: Any,
     ) -> ModelResponse:
         # Merge litellm_kwargs with additional_kwargs
-        all_kwargs = LiteLLMKwargs(
-            **(litellm_kwargs.dict(exclude_none=True) | additional_kwargs)
-        )
+        all_kwargs = LiteLLMKwargs(**(litellm_kwargs.dict(exclude_none=True) | additional_kwargs))
 
         try:
             # Make sure stream is false for non-streaming completion
@@ -108,38 +80,7 @@ class LLMClient:
                 f"LLM API Completion Error, details: {str(e)}",
             )
 
-    async def astream_completion(
-        self,
-        messages: List[Dict[str, Any]],
-        model: Optional[str] = None,
-        litellm_kwargs: LiteLLMKwargs = LiteLLMKwargs(),
-        **additional_kwargs: Any,
-    ) -> AsyncGenerator[str, None]:
-        # Merge litellm_kwargs with additional_kwargs
-        all_kwargs = LiteLLMKwargs(
-            **(litellm_kwargs.dict(exclude_none=True) | additional_kwargs)
-        )
-
-        try:
-            # Make sure stream is true for streaming completion
-            all_kwargs.stream = True
-
-            stream = await self._aget_chat_completion_response(
-                messages=messages,
-                model=model,
-                litellm_kwargs=all_kwargs,
-            )
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-
-        except Exception as e:
-            logger.error(f"Error: {str(e)}")
-            raise ServerError.LLM_API_ERROR.as_exception(
-                f"LLM API Streaming Error, details: {str(e)}",
-            )
-
+    # Must have
     async def astructure_completion(
         self,
         messages: List[Dict[str, Any]],
@@ -157,9 +98,7 @@ class LLMClient:
         More details: https://python.useinstructor.com/
         """
         # Merge litellm_kwargs with additional_kwargs
-        all_kwargs = LiteLLMKwargs(
-            **(litellm_kwargs.dict(exclude_none=True) | additional_kwargs)
-        )
+        all_kwargs = LiteLLMKwargs(**(litellm_kwargs.dict(exclude_none=True) | additional_kwargs))
 
         try:
             response = await self._astructure_completion_func(
@@ -179,101 +118,13 @@ class LLMClient:
                 f"LLM API Steering Error, details: {str(e)}",
             )
 
-    async def astructure_stream_completion(
-        self,
-        messages: List[Dict[str, Any]],
-        model: Optional[str] = None,
-        response_model: Optional[BaseModel] = None,
-        litellm_kwargs: LiteLLMKwargs = LiteLLMKwargs(),
-        **additional_kwargs: Any,
-    ) -> AsyncGenerator:
-        """
-        Stream the LLM output to response_model.
-        More details: https://python.useinstructor.com/hub/partial_streaming/
-        """
-        # Merge litellm_kwargs with additional_kwargs
-        all_kwargs = LiteLLMKwargs(
-            **(litellm_kwargs.dict(exclude_none=True) | additional_kwargs)
-        )
-        response = None
-
-        try:
-            # Make sure stream is true for partial streaming
-            all_kwargs.stream = True
-
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                response_model=response_model,
-                **all_kwargs.model_dump(exclude_none=True),
-            )
-
-            async for chunk in response:
-                if chunk:
-                    yield chunk
-
-        except Exception as e:
-            logger.error(f"Error: {str(e)}")
-            raise ServerError.LLM_API_ERROR.as_exception(
-                f"LLM API Partial Steering Error, details: {str(e)}",
-            )
-        finally:
-            if response:
-                await response.aclose()
-
     ################################################################################
     #                                                                              #
     #                               Prompt Wrappers                                #
     #                                                                              #
     ################################################################################
 
-    async def acompletion_with_prompt(
-        self,
-        prompt_func: BasePromptFunction,
-        parse_type: ParseType | None,
-        **kwargs: Any,
-    ) -> ModelResponse:
-        """
-        Wrapper around acompletion to allow for passing in a prompt function.
-        """
-        messages = [
-            ChatMessage(role=MessageRole.SYSTEM, content=prompt_func.system()),
-            ChatMessage(role=MessageRole.USER, content=prompt_func.user()),
-        ]
-
-        response = await self.client.chat.completions.create(
-            messages=messages,
-            **kwargs,
-        )
-        output = response.choices[0].message.content
-        if parse_type == ParseType.JSON:
-            output = output.strip("`").strip("json")
-            output = json.loads(output)
-        elif parse_type == ParseType.LIST:
-            output = ast.literal_eval(output)
-        elif parse_type == ParseType.RAW:
-            return response
-
-        return output
-
-    def astream_completion_with_prompt(
-        self,
-        prompt_func: BasePromptFunction,
-        **kwargs: Any,
-    ) -> AsyncGenerator[str, None]:
-        """
-        Wrapper around astream_completion to allow for passing in a prompt function.
-        """
-        messages = [
-            ChatMessage(role=MessageRole.SYSTEM, content=prompt_func.system()),
-            ChatMessage(role=MessageRole.USER, content=prompt_func.user()),
-        ]
-
-        return self.astream_completion(
-            messages=messages,
-            **kwargs,
-        )
-
+    # Must have
     async def astructure_completion_with_prompt(
         self,
         prompt_func: BasePromptFunction,
@@ -294,32 +145,7 @@ class LLMClient:
             **kwargs,
         )
 
-    def astructure_stream_completion_with_prompt(
-        self,
-        prompt_func: BasePromptFunction,
-        response_model: Optional[BaseModel] = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator:
-        """
-        Wrapper around astructure_stream_completion to allow for passing in a prompt function.
-        """
-        messages = [
-            ChatMessage(role=MessageRole.SYSTEM, content=prompt_func.system()),
-            ChatMessage(role=MessageRole.USER, content=prompt_func.user()),
-        ]
-
-        return self.astructure_stream_completion(
-            messages=messages,
-            response_model=response_model,
-            **kwargs,
-        )
-
-    ################################################################################
-    #                                                                              #
-    #                                    Utils                                     #
-    #                                                                              #
-    ################################################################################
-
+    # Must have
     async def _aget_chat_completion_response(
         self,
         messages: List[Dict[str, Any]],
@@ -335,10 +161,7 @@ class LLMClient:
         _, provider, _, _ = get_llm_provider(model)
         if provider == Provider.ollama_chat or provider == Provider.ollama:
             litellm_kwargs.api_key = None  # remove api key for ollama provider
-            if (
-                litellm_kwargs.frequency_penalty == 0
-                or litellm_kwargs.frequency_penalty is None
-            ):
+            if litellm_kwargs.frequency_penalty == 0 or litellm_kwargs.frequency_penalty is None:
                 litellm_kwargs.frequency_penalty = 1.1
 
         try:
@@ -348,10 +171,7 @@ class LLMClient:
                 if value is not None and key in type_hints and isinstance(value, str):
                     type_hint = type_hints[key]
                     # Handle Optional[Type] annotations
-                    if (
-                        hasattr(type_hint, "__origin__")
-                        and type_hint.__origin__ == Union
-                    ):
+                    if hasattr(type_hint, "__origin__") and type_hint.__origin__ == Union:
                         # For Optional types, we assume the first argument is the actual type
                         # (e.g., Optional[int] is represented as Union[int, NoneType])
                         # We cast the value to this type, ignoring the potential None
@@ -378,55 +198,7 @@ class LLMClient:
             logger.error("litellm call cancelled")
             raise RuntimeError("litellm call cancelled")
 
-    # TODO: convert to async
-    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(3))
-    def _get_embeddings_response(
-        self,
-        texts: Union[str, List[str]],
-        model: Optional[str] = None,
-        litellm_kwargs: LiteLLMKwargs = LiteLLMKwargs(),
-    ) -> EmbeddingResponse:
-        """
-        Embed texts using OpenAI's ada model.
-
-        Args:
-            texts: The list of texts to embed.
-
-        Returns:
-            A list of embeddings, each of which is a list of floats.
-
-        Raises:
-            Exception: If the OpenAI API call fails.
-        """
-        deployment_id = litellm_kwargs.deployment_id
-        if deployment_id is not None:
-            raise NotImplementedError(
-                "Deployment id is currently not supported for embeddings",
-            )
-
-        try:
-            if litellm_kwargs.base_url is not None:
-                # LiteLLM `embedding` has slightly different signature than `completion`
-                litellm_kwargs = litellm_kwargs.copy()
-                litellm_kwargs.api_base = litellm_kwargs.base_url
-                litellm_kwargs.base_url = None
-
-            if model is None:
-                model = deployment_id or self.embed_model
-
-            embeddings = get_litellm_embedding(
-                model=model,
-                input=texts,
-                **litellm_kwargs.model_dump(exclude_none=True),
-            )
-            return embeddings
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            logger.error(traceback.format_exc())
-            raise ServerError.LLM_API_ERROR.as_exception(
-                f"LLM API Error, details: {str(e)}",
-            )
-
+    # Must have
     def _patch_structure_completion(self):
         original_from_response = OpenAISchema.from_response
 
@@ -466,7 +238,7 @@ class LLMClient:
                     mode=mode,
                 )
                 results.append(result)
-                
+
             return MultiGenerationsResponse(
                 results=results,
                 completion_tokens=completion.usage.completion_tokens,

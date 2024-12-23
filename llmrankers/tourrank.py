@@ -65,7 +65,7 @@ class TourrankLlmRanker(LlmRanker):
         try:
             try:
                 completion = self.client.chat.completions.create(
-                    model=self.model, messages=messages, temperature=self.temperature
+                    model=self.model, messages=messages, temperature=self.temperature, timeout=15
                 )
                 # add completion tokens to total
                 total_compare.value = total_compare.value + 1

@@ -13,7 +13,7 @@ from llmrankers.pairwise import (
     OpenAIPairwiseLlmRanker,
 )
 from llmrankers.listwise import OpenAIListwiseLlmRanker, ListwiseLlmRanker
-from llmrankers.tourwise import TourwiseLlmRanker
+from llmrankers.tourrank import TourrankLlmRanker
 from beir.retrieval.evaluation import EvaluateRetrieval
 from beir import LoggingHandler
 from tqdm import tqdm
@@ -224,16 +224,18 @@ def main(args):
                 use_COT_anchor=args.batchwise.use_COT_anchor,
             )
 
-    elif args.tourwise:
-        ranker = TourwiseLlmRanker(
+    elif args.tourrank:
+        ranker = TourrankLlmRanker(
             model_name_or_path=args.run.model_name_or_path,
-            batch_size=args.tourwise.batch_size,
-            num_tournaments=args.tourwise.num_tournaments,
-            temperature=args.tourwise.temperature,
+            batch_size=args.tourrank.batch_size,
+            num_tournaments=args.tourrank.num_tournaments,
+            temperature=args.tourrank.temperature,
             api_key=args.run.openai_key,
         )
     else:
-        raise ValueError("Must specify either --pointwise, --setwise, --pairwise, --listwise, --batchwise, or --tourwise.")
+        raise ValueError(
+            "Must specify either --pointwise, --setwise, --pairwise, --listwise, --batchwise, or --tourrank."
+        )
 
     print(f"Ranker: {ranker}")
 
@@ -292,12 +294,15 @@ def main(args):
         total_completion_tokens = 0
 
         tic = time.time()
+        total_latency = 0.0
         for qid, query, ranking in tqdm(first_stage_rankings):
             if args.run.shuffle_ranking is not None:
                 if args.run.shuffle_ranking == "random":
                     random.shuffle(ranking)
                 elif args.run.shuffle_ranking == "inverse":
                     ranking = ranking[::-1]
+                elif args.run.shuffle_ranking in ["none", "no", "top"]:
+                    pass
                 else:
                     raise ValueError(f"Invalid shuffle ranking method: {args.run.shuffle_ranking}.")
             reranked_results.append((qid, query, ranker.rerank(query, ranking)))
@@ -305,8 +310,13 @@ def main(args):
             total_prompt_tokens += ranker.total_prompt_tokens
             total_completion_tokens += ranker.total_completion_tokens
 
-            print(f"Current total prompt tokens: {total_prompt_tokens:,}")
-            print(f"Current total completion tokens: {total_completion_tokens:,}")
+            print(f"* Current total prompt tokens: {total_prompt_tokens:,}")
+            print(f"* Current total completion tokens: {total_completion_tokens:,}")
+            if args.batchwise:
+                total_latency += ranker.latency
+                print(f"* Avg time per query: {total_latency/len(reranked_results):.2f}s")
+            else:
+                print(f"* Avg time per query: {(time.time()-tic)/len(reranked_results):.2f}s")
             if "gpt" in args.run.model_name_or_path:
                 prices = get_pricing(
                     args.run.model_name_or_path, total_prompt_tokens, total_completion_tokens
@@ -319,14 +329,14 @@ def main(args):
                 avg_prices_per_query = {k: f"{v:.4f}$" for k, v in avg_prices_per_query.items()}
                 estimated_total_cost = {k: f"{v:.4f}$" for k, v in estimated_total_cost.items()}
 
-                print(f"Total prices: {prices}")
-                print(f"Avg prices per query: {avg_prices_per_query}")
-                print(f"Estimated total cost: {estimated_total_cost}")
+                print(f"* Total prices: {prices}")
+                print(f"* Avg prices per query: {avg_prices_per_query}")
+                print(f"* Estimated total cost: {estimated_total_cost}")
 
         toc = time.time()
-        if args.batchwise:
-            toc -= ranker.delay_per_query * len(reranked_results)  # delay for each query
-            toc -= ranker.extra_time_for_asyncio  # extra time for handling asyncio
+        # if args.batchwise:
+        #     toc -= ranker.delay_per_query * len(reranked_results)  # delay for each query
+        #     toc -= ranker.extra_time_for_asyncio  # extra time for handling asyncio
 
         print(f"Number of reranked queries: {len(reranked_results)}")
         print(f"total prompt tokens: {total_prompt_tokens}")
@@ -335,6 +345,10 @@ def main(args):
         print(f"Avg prompt tokens: {total_prompt_tokens/len(reranked_results)}")
         print(f"Avg completion tokens: {total_completion_tokens/len(reranked_results)}")
         print(f"Avg time per query: {(toc-tic)/len(reranked_results)}")
+        if args.batchwise:
+            print(f"Avg time per query: {total_latency/len(reranked_results)}")
+        else:
+            print(f"Avg time per query: {(toc-tic)/len(reranked_results)}")
 
         run_stats = {
             "n_queries": len(reranked_results),
@@ -344,7 +358,11 @@ def main(args):
             "avg_prompt_tokens": total_prompt_tokens / len(reranked_results),
             "avg_completion_tokens": total_completion_tokens / len(reranked_results),
             "avg_comparisons": total_comparisons / len(reranked_results),
-            "avg_time_per_query": (toc - tic) / len(reranked_results),
+            "avg_time_per_query": (
+                (toc - tic) / len(reranked_results)
+                if not args.batchwise
+                else total_latency / len(reranked_results)
+            ),
         }
         if "gpt" in args.run.model_name_or_path:
             prices = get_pricing(
@@ -463,7 +481,7 @@ if __name__ == "__main__":
         choices=["generation", "likelihood"],
     )
     run_parser.add_argument(
-        "--shuffle_ranking", type=str, default=None, choices=["inverse", "random"]
+        "--shuffle_ranking", type=str, default=None, choices=["inverse", "random", "none", "top"]
     )
     run_parser.add_argument(
         "--skip_rerank",
@@ -526,11 +544,11 @@ if __name__ == "__main__":
     batchwise_parser.add_argument("--vllm_url", type=str, default="http://0.0.0.0:8000/v1")
     batchwise_parser.add_argument("--vllm_guided_decoding_backend", type=str, default="outlines")
 
-    # Tourwise reranking
-    tourwise_parser = commands.add_parser("tourwise")
-    tourwise_parser.add_argument("--batch_size", type=int, default=10)
-    tourwise_parser.add_argument("--num_tournaments", type=int, default=10)
-    tourwise_parser.add_argument("--temperature", type=float, default=0.5)
+    # Tourrank reranking
+    tourrank_parser = commands.add_parser("tourrank")
+    tourrank_parser.add_argument("--batch_size", type=int, default=10)
+    tourrank_parser.add_argument("--num_tournaments", type=int, default=10)
+    tourrank_parser.add_argument("--temperature", type=float, default=0.5)
 
     # Evaluation
     eval_parser = commands.add_parser("eval")
@@ -562,6 +580,6 @@ if __name__ == "__main__":
         sum(arg_dict[arg] is not None for arg in arg_dict) != 2 and "eval" not in arg_dict
     ):
         raise ValueError(
-            "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise, or --tourwise"
+            "Need to set --run and can only set one of --pointwise, --pairwise, --setwise, --listwise, --batchwise, or --tourrank"
         )
     main(args)

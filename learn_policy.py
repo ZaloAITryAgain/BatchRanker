@@ -198,11 +198,13 @@ def get_batch_reward_loss(scores, batch, batch_qids, batch_queries, batch_rankin
     for i in range(len(batch_rewards)):
         # Do not include the current reward
         if i == 0:
-            cur_baseline = torch.tensor(batch_rewards[1:])
+            cur_baseline = torch.tensor(batch_rewards[1:], requires_grad=False)
         elif i == len(batch_rewards) - 1:
-            cur_baseline = torch.tensor(batch_rewards[:-1])
+            cur_baseline = torch.tensor(batch_rewards[:-1], requires_grad=False)
         else:
-            cur_baseline = torch.tensor(batch_rewards[:i] + batch_rewards[i + 1 :])
+            cur_baseline = torch.tensor(
+                batch_rewards[:i] + batch_rewards[i + 1 :], requires_grad=False
+            )
 
         cur_baseline = cur_baseline.sum() / (len(batch_rewards) - 1)
         total_batch_loss += -batch_log_probs[i] * (batch_rewards[i] - cur_baseline)

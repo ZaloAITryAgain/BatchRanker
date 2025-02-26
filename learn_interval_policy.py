@@ -474,7 +474,6 @@ if __name__ == "__main__":
 
     ## TRAINING
     logger = Logger(os.path.join(args.ckpt_path, "log.txt"))
-    # batch_size = args.batch_size
-    batch_size = 2
+    batch_size = args.batch_size
     n_epochs = args.epochs
     policy_gradient_train(policy_model, train_ranking, qrels, batch_size, n_epochs)
